@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # http://localhost); MUST be True on the real, HTTPS server.
     cookie_secure: bool = False
 
+    # --- Cloudinary (image storage) ---
+    # All three required. The secret is used server-side to sign uploads, so the
+    # browser can upload straight to Cloudinary without us proxying the file.
+    cloudinary_cloud_name: str
+    cloudinary_api_key: str
+    cloudinary_api_secret: str
+
 
 # One shared settings object the whole app imports: `from app.config import settings`.
 settings = Settings()  # type: ignore[call-arg]

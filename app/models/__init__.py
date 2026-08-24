@@ -3,6 +3,7 @@ every table by importing this one module. As we add tables, we import them here.
 """
 
 from app.models.base import Base
+from app.models.garment import Garment, GarmentStatus
 from app.models.user import User
 
-__all__ = ["Base", "User"]
+__all__ = ["Base", "User", "Garment", "GarmentStatus"]

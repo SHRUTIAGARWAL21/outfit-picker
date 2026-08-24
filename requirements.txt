@@ -11,6 +11,9 @@ pgvector>=0.3.6             # vector column type for SQLAlchemy
 # --- Session store / cache / queue broker ---
 redis>=5.0                  # server-side sessions (and later: cache, locks, quotas)
 
+# --- Image storage ---
+cloudinary>=1.44            # image uploads, private delivery, thumbnails
+
 # --- Config ---
 pydantic-settings>=2.6
 email-validator>=2.2        # enables pydantic's EmailStr
