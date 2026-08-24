@@ -1,0 +1,22 @@
+# --- Web framework ---
+fastapi>=0.115
+uvicorn[standard]>=0.32
+
+# --- Database ---
+SQLAlchemy>=2.0.36
+alembic>=1.14
+psycopg[binary]>=3.2        # Postgres driver (v3; has Python 3.13 wheels)
+pgvector>=0.3.6             # vector column type for SQLAlchemy
+
+# --- Session store / cache / queue broker ---
+redis>=5.0                  # server-side sessions (and later: cache, locks, quotas)
+
+# --- Config ---
+pydantic-settings>=2.6
+email-validator>=2.2        # enables pydantic's EmailStr
+
+# --- Auth ---
+argon2-cffi>=23.1           # password hashing
+
+# --- Dev / test ---
+httpx>=0.27                 # used by FastAPI's TestClient
