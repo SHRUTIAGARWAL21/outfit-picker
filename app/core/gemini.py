@@ -91,28 +91,24 @@ def _get_client():
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 
 
-def extract_attributes(image_bytes: bytes, mime_type: str) -> GarmentAttributes:
-    """Send one image to Gemini and return its structured description.
-
-    Raises TransientError for problems worth retrying, PermanentError otherwise.
+def _generate(contents, response_schema):
+    """The shared plumbing for every Gemini call: send `contents`, force a JSON
+    answer that matches `response_schema`, and translate Gemini's errors into our
+    TransientError / PermanentError. Returns the parsed schema object.
     """
     from google.genai import types
     from google.genai import errors as genai_errors
 
     client = _get_client()
-
     try:
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                _PROMPT,
-            ],
+            contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=GarmentAttributes,
+                response_schema=response_schema,
                 # We only want a JSON answer, never tool calls — turning this off
-                # keeps a noisy SDK warning out of the worker logs.
+                # keeps a noisy SDK warning out of the logs.
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         )
@@ -126,10 +122,69 @@ def extract_attributes(image_bytes: bytes, mime_type: str) -> GarmentAttributes:
         # Network blip, timeout, DNS — no status code reached us. Worth a retry.
         raise TransientError(f"Could not reach Gemini: {exc}") from exc
 
-    # The SDK already parsed the JSON against GarmentAttributes for us.
     parsed = response.parsed
     if parsed is None:
         # The model answered but produced nothing usable — often a safety block.
-        # One retry is cheap; if it keeps happening the worker gives up.
+        # One retry is cheap; if it keeps happening the caller gives up.
         raise TransientError("Gemini returned no structured result.")
     return parsed
+
+
+def extract_attributes(image_bytes: bytes, mime_type: str) -> GarmentAttributes:
+    """Send one image to Gemini and return its structured description.
+
+    Raises TransientError for problems worth retrying, PermanentError otherwise.
+    """
+    from google.genai import types
+
+    part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    return _generate([part, _PROMPT], GarmentAttributes)
+
+
+# --- Recommendation ranking (Step 5) ---------------------------------------
+
+
+class OutfitPick(BaseModel):
+    """One outfit the stylist proposes."""
+
+    garment_ids: list[str] = Field(
+        description="The ids of the garments in this outfit, copied exactly from the catalog."
+    )
+    reason: str = Field(description="One short sentence: why this outfit suits the request.")
+
+
+class OutfitRanking(BaseModel):
+    """The full ranked answer: best outfit first."""
+
+    outfits: list[OutfitPick]
+
+
+def rank_outfits(prompt_text: str, garments: list[dict], count: int) -> list[OutfitPick]:
+    """Ask Gemini to build ranked outfits from the given wardrobe, as text.
+
+    `garments` is a list of {"id": str, "attributes": {...}} dicts — only the
+    candidates that passed the hard filter. The model must reuse those ids exactly.
+    """
+    # Build a compact one-line-per-garment catalogue. Sending text (not images)
+    # is the whole point of Step 5 — it is cheap and inspectable (PRD 10.1).
+    lines = []
+    for g in garments:
+        a = g.get("attributes") or {}
+        lines.append(
+            f"id={g['id']} | {a.get('category', '?')}/{a.get('subcategory', '?')} | "
+            f"colour={a.get('primary_color', '?')} | formality={a.get('formality', '?')}/5 | "
+            f"seasons={','.join(a.get('seasons', []) or []) or '?'} | {a.get('description', '')}"
+        )
+    catalogue = "\n".join(lines)
+
+    instruction = (
+        "You are a personal stylist. The user owns exactly this wardrobe:\n\n"
+        f"{catalogue}\n\n"
+        f'The user asks: "{prompt_text}"\n\n'
+        f"Compose up to {count} complete, wearable outfits using ONLY the garment "
+        "ids above. Every outfit must make sense to wear together (at least a top "
+        "and a bottom, or a single dress, plus optional layers, shoes and "
+        "accessories). Never invent an id. Rank the outfits best first, and give "
+        "each a short one-sentence reason tied to the user's request."
+    )
+    return _generate([instruction], OutfitRanking).outfits

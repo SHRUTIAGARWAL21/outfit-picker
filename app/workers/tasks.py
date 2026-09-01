@@ -25,9 +25,15 @@ from sqlalchemy import and_, or_
 
 from app.celery_app import celery_app
 from app.core.errors import PermanentError, TransientError
-from app.core.gemini import SCHEMA_VERSION, extract_attributes
+from app.core.gemini import SCHEMA_VERSION, extract_attributes, rank_outfits
 from app.db import SessionLocal
-from app.models import Garment, GarmentStatus
+from app.models import (
+    Garment,
+    GarmentStatus,
+    Outfit,
+    OutfitRequest,
+    RequestStatus,
+)
 from app.redis_client import redis_client
 
 logger = get_task_logger(__name__)
@@ -47,6 +53,9 @@ _STUCK_PENDING_MINUTES = 5
 _STUCK_PROCESSING_MINUTES = 10
 # After this many touches with no success, stop retrying and mark the row DEAD.
 _MAX_ATTEMPTS = 5
+
+# How many outfits a recommendation request returns by default (PRD 4.4).
+_DEFAULT_OUTFITS = 5
 
 
 def _sha256(data: bytes) -> str:
@@ -230,3 +239,98 @@ def requeue_stuck_garments() -> dict:
         return {"requeued": requeued, "dead": dead, "scanned": len(stuck)}
     finally:
         db.close()
+
+
+def _fail_request(db, request_id: str) -> None:
+    """Re-read the request on a clean session and mark it FAILED."""
+    db.rollback()
+    req = db.get(OutfitRequest, uuid.UUID(request_id))
+    if req is not None:
+        req.status = RequestStatus.FAILED
+        db.commit()
+
+
+@celery_app.task(bind=True, name="requests.generate", max_retries=_MAX_RETRIES)
+def generate_recommendations(self, request_id: str) -> str:
+    """Turn one text request into ranked outfits (PRD Step 5, stages 1 and 3).
+
+    Stage 1 (hard filter): take the user's READY garments. Stage 3 (rerank): send
+    their descriptions as text to Gemini and get back ranked outfits. We save each
+    outfit as a row (garment ids + reason + rank). No images here — that is Step 6.
+    """
+    lock = redis_client.lock(f"lock:request:{request_id}", timeout=_LOCK_TTL_SECONDS, blocking_timeout=0)
+    if not lock.acquire():
+        return "locked"
+
+    db = SessionLocal()
+    try:
+        req = db.get(OutfitRequest, uuid.UUID(request_id))
+        if req is None:
+            return "missing"
+        if req.status == RequestStatus.READY:
+            return "already-ready"
+
+        req.status = RequestStatus.PROCESSING
+        db.commit()
+
+        try:
+            # Stage 1 — the hard filter: only this user's analysed garments.
+            garments = (
+                db.query(Garment)
+                .filter(
+                    Garment.user_id == req.user_id,
+                    Garment.status == GarmentStatus.READY,
+                    Garment.attributes_json.isnot(None),
+                )
+                .all()
+            )
+            candidates = {str(g.id): g for g in garments}
+            if not candidates:
+                req.status = RequestStatus.FAILED
+                db.commit()
+                return "no-candidates"
+
+            # Stage 3 — ask Gemini to rank outfits from those candidates (text only).
+            payload = [{"id": str(g.id), "attributes": g.attributes_json} for g in garments]
+            picks = rank_outfits(req.prompt_text, payload, _DEFAULT_OUTFITS)
+
+            # Replace any previous outfits for this request (safe to re-run).
+            db.query(Outfit).filter(Outfit.request_id == req.id).delete()
+
+            rank = 0
+            for pick in picks:
+                # Trust nothing: keep only ids the model was actually given.
+                valid = [uuid.UUID(i) for i in pick.garment_ids if i in candidates]
+                if not valid:
+                    continue
+                rank += 1
+                db.add(
+                    Outfit(
+                        request_id=req.id,
+                        garment_ids=valid,
+                        rank=rank,
+                        reason=pick.reason[:500],
+                    )
+                )
+
+            req.status = RequestStatus.READY
+            db.commit()
+            return f"ready:{rank}"
+
+        except PermanentError:
+            _fail_request(db, request_id)
+            return "failed-permanent"
+
+        except TransientError as exc:
+            try:
+                raise self.retry(exc=exc, countdown=5 * (self.request.retries + 1))
+            except self.MaxRetriesExceededError:
+                _fail_request(db, request_id)
+                return "failed-exhausted"
+
+    finally:
+        db.close()
+        try:
+            lock.release()
+        except LockError:
+            pass
