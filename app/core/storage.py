@@ -7,9 +7,11 @@ in exactly one place (same pattern as the database engine and Redis client).
 `secure=True` makes Cloudinary hand back https:// URLs.
 """
 
+import io
 import time
 
 import cloudinary
+import cloudinary.uploader
 import cloudinary.utils
 
 from app.config import settings
@@ -66,3 +68,24 @@ def sign_upload(user_id: str) -> dict:
 def sign_avatar_upload(user_id: str) -> dict:
     """A signed slip to upload the base photo into this user's avatar folder."""
     return _sign_upload_to(avatar_folder(user_id))
+
+
+def render_folder(user_id: str) -> str:
+    """Each user's rendered outfit images live in their own folder."""
+    return f"renders/{user_id}"
+
+
+def upload_render(user_id: str, outfit_id: str, image_bytes: bytes) -> tuple[str, str]:
+    """Save a rendered outfit image (raw bytes from the AI) into our own storage.
+
+    We copy every generated image into Cloudinary rather than keeping a provider
+    URL, so the interest section never has to regenerate it (PRD 10.8). Returns
+    (public_id, secure_url).
+    """
+    result = cloudinary.uploader.upload(
+        io.BytesIO(image_bytes),
+        folder=render_folder(user_id),
+        public_id=str(outfit_id),  # one render per outfit; re-render overwrites
+        overwrite=True,
+    )
+    return result["public_id"], result["secure_url"]

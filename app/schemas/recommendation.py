@@ -31,6 +31,7 @@ class OutfitOut(BaseModel):
     rank: int
     reason: str
     render_status: str
+    render_url: str | None = None
     garment_ids: list[uuid.UUID]
     # Filled in by the router so the caller sees the actual pieces, not just ids.
     garments: list[GarmentBrief] = []

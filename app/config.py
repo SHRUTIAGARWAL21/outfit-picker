@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     gemini_api_key: str
     gemini_model: str = "gemini-3.6-flash"
 
+    # The image model for the render stage (Step 6). Image generation usually
+    # needs billing enabled, and may sit on a different key than the text model,
+    # so it has its own optional key. If left blank, the text key is reused.
+    gemini_image_model: str = "gemini-3.1-flash-image"
+    gemini_image_api_key: str = ""
+
 
 # One shared settings object the whole app imports: `from app.config import settings`.
 settings = Settings()  # type: ignore[call-arg]

@@ -75,6 +75,7 @@ _PROMPT = (
 # or missing key from breaking every import of the app; the failure shows up only
 # when a worker actually tries to use it.
 _client = None
+_image_client = None
 
 
 def _get_client():
@@ -84,6 +85,18 @@ def _get_client():
 
         _client = genai.Client(api_key=settings.gemini_api_key)
     return _client
+
+
+def _get_image_client():
+    """The client for image generation. Uses the dedicated image key if one is
+    set, otherwise falls back to the main text key."""
+    global _image_client
+    if _image_client is None:
+        from google import genai
+
+        key = settings.gemini_image_api_key or settings.gemini_api_key
+        _image_client = genai.Client(api_key=key)
+    return _image_client
 
 
 # Gemini HTTP status codes that mean "try again later" rather than "this will
@@ -193,6 +206,57 @@ class OutfitRanking(BaseModel):
     """The full ranked answer: best outfit first."""
 
     outfits: list[OutfitPick]
+
+
+_RENDER_INSTRUCTION = (
+    "You are a virtual try-on system. The FIRST image is a real person. Every "
+    "image after it is one clothing item. Generate ONE photorealistic, full-body "
+    "image of THIS SAME person wearing ALL of those clothing items together as a "
+    "single outfit. Keep the person's face, body shape, skin tone and hair "
+    "unchanged. Use a natural standing pose and a plain, light background. Do not "
+    "add any garment that was not provided."
+)
+
+
+def render_outfit(
+    base_image: bytes,
+    base_mime: str,
+    garment_images: list[tuple[bytes, str]],
+) -> tuple[bytes, str]:
+    """Generate an image of the person (base) wearing the given garments.
+
+    Returns (image_bytes, mime_type). Same error rules as the other calls:
+    TransientError to retry, PermanentError to give up.
+    """
+    from google.genai import types
+    from google.genai import errors as genai_errors
+
+    client = _get_image_client()
+    parts = [types.Part.from_bytes(data=base_image, mime_type=base_mime)]
+    for data, mime in garment_images:
+        parts.append(types.Part.from_bytes(data=data, mime_type=mime))
+    parts.append(_RENDER_INSTRUCTION)
+
+    try:
+        response = client.models.generate_content(model=settings.gemini_image_model, contents=parts)
+    except genai_errors.APIError as exc:
+        code = getattr(exc, "code", None)
+        if code in _TRANSIENT_CODES:
+            raise TransientError(f"Gemini image {code}: {exc}") from exc
+        raise PermanentError(f"Gemini image rejected the request ({code}): {exc}") from exc
+    except Exception as exc:
+        raise TransientError(f"Could not reach Gemini image: {exc}") from exc
+
+    # Find the generated image among the returned parts.
+    for candidate in response.candidates or []:
+        content = candidate.content
+        for part in (content.parts if content else []) or []:
+            inline = getattr(part, "inline_data", None)
+            if inline and inline.data:
+                return inline.data, inline.mime_type or "image/png"
+
+    # No image came back — usually a safety refusal. Not worth retrying.
+    raise PermanentError("Gemini returned no image for this outfit.")
 
 
 def rank_outfits(prompt_text: str, garments: list[dict], count: int) -> list[OutfitPick]:

@@ -95,5 +95,6 @@ class Outfit(UUIDMixin, TimestampMixin, Base):
         server_default=RenderStatus.PENDING,
         nullable=False,
     )
-    # The rendered image's storage key, once Step 6 fills it.
+    # The rendered image's storage key and served URL, once Step 6 fills them.
     render_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    render_url: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -10,16 +10,28 @@ The client creates a request, then polls the GET endpoint until status is READY.
 (Live push over Server-Sent Events comes with the render stage, Step 6.)
 """
 
+import json
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
-from app.db import get_db
-from app.models import Garment, GarmentStatus, Outfit, OutfitRequest, User
+from app.db import SessionLocal, get_db
+from app.models import (
+    Avatar,
+    AvatarStatus,
+    Garment,
+    GarmentStatus,
+    Outfit,
+    OutfitRequest,
+    RenderStatus,
+    User,
+)
 from app.schemas.recommendation import GarmentBrief, OutfitOut, RecommendationCreate, RequestOut
-from app.workers.tasks import generate_recommendations
+from app.workers.tasks import generate_recommendations, render_outfit_task
 
 router = APIRouter(prefix="/requests", tags=["recommendations"])
 
@@ -98,6 +110,7 @@ def get_request(
             rank=o.rank,
             reason=o.reason,
             render_status=o.render_status,
+            render_url=o.render_url,
             garment_ids=o.garment_ids,
             garments=[GarmentBrief.model_validate(by_id[gid]) for gid in o.garment_ids if gid in by_id],
         )
@@ -111,3 +124,94 @@ def get_request(
         created_at=req.created_at,
         outfits=outfit_out,
     )
+
+
+@router.post("/{request_id}/render", status_code=status.HTTP_202_ACCEPTED)
+def render_request(
+    request_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Queue one render per outfit for this request (PRD 7.3).
+
+    Needs a READY avatar (the base image to dress). Rendering also starts on its
+    own after a recommendation finishes; this endpoint re-runs it on demand.
+    """
+    req = db.get(OutfitRequest, request_id)
+    if req is None or req.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+
+    avatar = (
+        db.query(Avatar)
+        .filter(Avatar.user_id == user.id, Avatar.status == AvatarStatus.READY)
+        .one_or_none()
+    )
+    if avatar is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You need a READY avatar before outfits can be rendered.",
+        )
+
+    outfits = db.query(Outfit).filter(Outfit.request_id == req.id).all()
+    queued = 0
+    for outfit in outfits:
+        try:
+            render_outfit_task.delay(str(outfit.id))
+            queued += 1
+        except Exception:
+            pass
+    return {"queued": queued}
+
+
+@router.get("/{request_id}/stream")
+def stream_request(
+    request_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Stream each outfit's render as it finishes, over Server-Sent Events.
+
+    The browser opens this once; we poll the database and push an event for every
+    outfit that becomes READY or FAILED, then a final 'done' event. SSE is one-way
+    and self-recovering, so a dropped connection simply reconnects (PRD 9).
+    """
+    req = db.get(OutfitRequest, request_id)
+    if req is None or req.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+
+    def event_stream():
+        seen: set = set()
+        for _ in range(150):  # ~150 * 2s = up to 5 minutes
+            session = SessionLocal()
+            try:
+                outfits = (
+                    session.query(Outfit)
+                    .filter(Outfit.request_id == request_id)
+                    .order_by(Outfit.rank)
+                    .all()
+                )
+                total = len(outfits)
+                done = 0
+                for o in outfits:
+                    if o.render_status in (RenderStatus.READY, RenderStatus.FAILED):
+                        done += 1
+                        if o.id not in seen:
+                            seen.add(o.id)
+                            payload = {
+                                "outfit_id": str(o.id),
+                                "rank": o.rank,
+                                "render_status": o.render_status,
+                                "render_url": o.render_url,
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
+            finally:
+                session.close()
+
+            if total and done >= total:
+                yield "event: done\ndata: {}\n\n"
+                return
+            time.sleep(2)
+
+        yield "event: timeout\ndata: {}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

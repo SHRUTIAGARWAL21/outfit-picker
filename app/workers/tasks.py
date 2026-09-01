@@ -30,7 +30,9 @@ from app.core.gemini import (
     extract_attributes,
     extract_avatar_profile,
     rank_outfits,
+    render_outfit,
 )
+from app.core.storage import upload_render
 from app.db import SessionLocal
 from app.models import (
     Avatar,
@@ -39,6 +41,7 @@ from app.models import (
     GarmentStatus,
     Outfit,
     OutfitRequest,
+    RenderStatus,
     RequestStatus,
 )
 from app.redis_client import redis_client
@@ -393,6 +396,20 @@ def generate_recommendations(self, request_id: str) -> str:
 
             req.status = RequestStatus.READY
             db.commit()
+
+            # If the user has a base image, kick off one render per outfit now, so
+            # images stream in as they finish (PRD 7.3). No avatar -> stay text-only.
+            avatar_ready = (
+                db.query(Avatar)
+                .filter(Avatar.user_id == req.user_id, Avatar.status == AvatarStatus.READY)
+                .first()
+            )
+            if avatar_ready is not None:
+                for outfit in db.query(Outfit).filter(Outfit.request_id == req.id).all():
+                    try:
+                        render_outfit_task.delay(str(outfit.id))
+                    except Exception:
+                        pass
             return f"ready:{rank}"
 
         except PermanentError:
@@ -404,6 +421,88 @@ def generate_recommendations(self, request_id: str) -> str:
                 raise self.retry(exc=exc, countdown=5 * (self.request.retries + 1))
             except self.MaxRetriesExceededError:
                 _fail_request(db, request_id)
+                return "failed-exhausted"
+
+    finally:
+        db.close()
+        try:
+            lock.release()
+        except LockError:
+            pass
+
+
+def _fail_render(db, outfit_id: str) -> None:
+    """Re-read the outfit on a clean session and mark its render FAILED."""
+    db.rollback()
+    outfit = db.get(Outfit, uuid.UUID(outfit_id))
+    if outfit is not None:
+        outfit.render_status = RenderStatus.FAILED
+        db.commit()
+
+
+@celery_app.task(bind=True, name="outfits.render", max_retries=_MAX_RETRIES)
+def render_outfit_task(self, outfit_id: str) -> str:
+    """Render one outfit as an image of the user wearing it (PRD 7.3).
+
+    One task per outfit (fan-out, PRD 10.4): each sends the user's base image plus
+    the outfit's garment images to the image model, stores the result in our own
+    storage, and writes the URL onto the outfit row.
+    """
+    lock = redis_client.lock(f"lock:render:{outfit_id}", timeout=_LOCK_TTL_SECONDS, blocking_timeout=0)
+    if not lock.acquire():
+        return "locked"
+
+    db = SessionLocal()
+    try:
+        outfit = db.get(Outfit, uuid.UUID(outfit_id))
+        if outfit is None:
+            return "missing"
+        if outfit.render_status == RenderStatus.READY:
+            return "already-ready"
+
+        # We need the user's base image. Find it via the parent request.
+        req = db.get(OutfitRequest, outfit.request_id)
+        avatar = (
+            db.query(Avatar)
+            .filter(Avatar.user_id == req.user_id, Avatar.status == AvatarStatus.READY)
+            .one_or_none()
+        )
+        if avatar is None:
+            outfit.render_status = RenderStatus.FAILED
+            db.commit()
+            return "no-avatar"
+
+        garments = db.query(Garment).filter(Garment.id.in_(outfit.garment_ids)).all()
+        if not garments:
+            outfit.render_status = RenderStatus.FAILED
+            db.commit()
+            return "no-garments"
+
+        outfit.render_status = RenderStatus.PROCESSING
+        db.commit()
+
+        try:
+            base_bytes, base_mime = _download_image(avatar.base_image_url)
+            garment_images = [_download_image(g.image_url) for g in garments]
+
+            image_bytes, _mime = render_outfit(base_bytes, base_mime, garment_images)
+            public_id, url = upload_render(str(req.user_id), str(outfit.id), image_bytes)
+
+            outfit.render_key = public_id
+            outfit.render_url = url
+            outfit.render_status = RenderStatus.READY
+            db.commit()
+            return "ready"
+
+        except PermanentError:
+            _fail_render(db, outfit_id)
+            return "failed-permanent"
+
+        except TransientError as exc:
+            try:
+                raise self.retry(exc=exc, countdown=5 * (self.request.retries + 1))
+            except self.MaxRetriesExceededError:
+                _fail_render(db, outfit_id)
                 return "failed-exhausted"
 
     finally:
