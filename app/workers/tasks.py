@@ -24,6 +24,7 @@ from redis.exceptions import LockError
 from sqlalchemy import and_, or_
 
 from app.celery_app import celery_app
+from app.core import quota
 from app.core.errors import PermanentError, TransientError
 from app.core.gemini import (
     SCHEMA_VERSION,
@@ -406,6 +407,10 @@ def generate_recommendations(self, request_id: str) -> str:
             )
             if avatar_ready is not None:
                 for outfit in db.query(Outfit).filter(Outfit.request_id == req.id).all():
+                    # Respect the daily render quota (PRD 4.6). Once the user is
+                    # out of tokens, the remaining outfits stay text-only.
+                    if not quota.consume(str(req.user_id)):
+                        break
                     try:
                         render_outfit_task.delay(str(outfit.id))
                     except Exception:

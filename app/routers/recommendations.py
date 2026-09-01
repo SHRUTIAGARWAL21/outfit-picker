@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core import quota
 from app.core.deps import get_current_user
 from app.db import SessionLocal, get_db
 from app.models import (
@@ -153,14 +154,26 @@ def render_request(
         )
 
     outfits = db.query(Outfit).filter(Outfit.request_id == req.id).all()
+
+    # Spend one render token per outfit, up to the daily limit. If the user is
+    # already out of tokens, reject the whole request at the API layer (PRD 4.6).
     queued = 0
     for outfit in outfits:
+        if not quota.consume(str(user.id)):
+            break  # daily quota reached — stop queueing
         try:
             render_outfit_task.delay(str(outfit.id))
             queued += 1
         except Exception:
             pass
-    return {"queued": queued}
+
+    if queued == 0 and outfits:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily render limit reached. Try again tomorrow.",
+        )
+
+    return {"queued": queued, "remaining": quota.remaining(str(user.id))}
 
 
 @router.get("/{request_id}/stream")

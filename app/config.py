@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     gemini_image_model: str = "gemini-3.1-flash-image"
     gemini_image_api_key: str = ""
 
+    # --- Cost control (Step 8) ---
+    # How many outfit images one user may generate per day. Image generation is
+    # the expensive call, so this caps the daily spend per user (PRD 4.6).
+    daily_render_quota: int = 30
+
 
 # One shared settings object the whole app imports: `from app.config import settings`.
 settings = Settings()  # type: ignore[call-arg]
