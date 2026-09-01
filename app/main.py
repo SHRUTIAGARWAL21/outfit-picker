@@ -11,7 +11,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.redis_client import redis_client
-from app.routers import auth, avatar, garments, recommendations, users
+from app.routers import auth, avatar, garments, interest, recommendations, users
 
 # `app` is the whole application object. uvicorn (the web server) looks for
 # this exact variable when it starts: it runs `app.main:app`.
@@ -27,6 +27,7 @@ app.include_router(users.router)
 app.include_router(avatar.router)
 app.include_router(garments.router)
 app.include_router(recommendations.router)
+app.include_router(interest.router)
 
 
 @app.get("/")
