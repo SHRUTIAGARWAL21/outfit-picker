@@ -37,3 +37,8 @@ class GarmentResponse(BaseModel):
     image_url: str
     status: str
     created_at: datetime
+
+    # Filled in once the worker (Step 3) finishes. Null while PENDING/PROCESSING.
+    attributes: dict | None = None
+    # Set only when status is FAILED, so the user knows why (PRD 4.3).
+    failure_reason: str | None = None

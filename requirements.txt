@@ -9,7 +9,13 @@ psycopg[binary]>=3.2        # Postgres driver (v3; has Python 3.13 wheels)
 pgvector>=0.3.6             # vector column type for SQLAlchemy
 
 # --- Session store / cache / queue broker ---
-redis>=5.0                  # server-side sessions (and later: cache, locks, quotas)
+redis>=5.0                  # server-side sessions, worker locks (and later: cache, quotas)
+
+# --- Background workers (Step 3) ---
+celery>=5.4                 # runs the slow AI work off the web request
+
+# --- AI: vision extraction (Step 3) ---
+google-genai>=1.0           # Gemini SDK: reads a garment photo, returns JSON
 
 # --- Image storage ---
 cloudinary>=1.44            # image uploads, private delivery, thumbnails

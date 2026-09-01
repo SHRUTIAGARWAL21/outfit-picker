@@ -58,6 +58,25 @@ uvicorn app.main:app --reload
 - Interactive API docs: <http://127.0.0.1:8000/docs>
 - Health check: <http://127.0.0.1:8000/health>
 
+### 7. Run the worker (Step 3 onward)
+
+The web app never calls the AI itself — it hands each garment to a background
+worker through the Redis queue. Start the worker in a **second terminal**:
+
+```bash
+celery -A app.celery_app worker --loglevel=info --pool=solo --beat
+```
+
+`--pool=solo` is required on Windows. On Linux or macOS you can drop it. `--beat`
+runs the recovery scheduler (Step 4) inside the same worker: every 2 minutes it
+re-queues any garment stuck at `PENDING` (>5 min) or `PROCESSING` (>10 min), and
+marks one `DEAD` after too many failed attempts.
+
+You also need `GEMINI_API_KEY` in `.env` (free key from
+<https://aistudio.google.com> → "Get API key"). Without the worker running, an
+uploaded garment stays at status `PENDING`; start the worker and it moves to
+`READY` with an extracted description, or `FAILED` with a reason.
+
 ## Google sign-in (optional in Phase 1)
 
 1. [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials
@@ -95,5 +114,9 @@ alembic/        versioned migrations
 | POST | `/auth/logout` | clears the cookie |
 | GET | `/auth/google/login` | redirect to Google |
 | GET | `/auth/google/callback` | Google returns here |
-| GET | `/users/me` | **protected** — requires `Authorization: Bearer <token>` |
-| GET | `/health` | app + database + pgvector status |
+| GET | `/users/me` | **protected** — the logged-in user |
+| POST | `/garments/upload-signature` | signed slip to upload one image to Cloudinary |
+| POST | `/garments` | record a finished upload; queues it for the worker |
+| GET | `/garments` | list this user's wardrobe, newest first |
+| POST | `/garments/{id}/retry` | re-queue a `FAILED` garment |
+| GET | `/health` | app + database + Redis status |

@@ -21,3 +21,7 @@ Thumbs.db
 # Local scratch
 *.log
 tmp/
+
+# Celery Beat's local schedule file
+celerybeat-schedule*
+celerybeat.pid

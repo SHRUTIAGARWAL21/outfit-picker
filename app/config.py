@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     cloudinary_api_key: str
     cloudinary_api_secret: str
 
+    # --- Gemini (vision extraction, Step 3) ---
+    # The worker sends each garment photo to this model and gets back a JSON
+    # description. Required now that the worker exists. `gemini_model` has a
+    # default, so you can swap models in .env without touching code.
+    gemini_api_key: str
+    gemini_model: str = "gemini-3.6-flash"
+
 
 # One shared settings object the whole app imports: `from app.config import settings`.
 settings = Settings()  # type: ignore[call-arg]

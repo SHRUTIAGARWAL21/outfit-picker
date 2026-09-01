@@ -1,0 +1,135 @@
+"""The one place that talks to Gemini.
+
+It does exactly one job: hand it the bytes of a garment photo, get back a
+structured description as JSON. Everything else (downloading the image, saving
+the result, retrying) belongs to the worker.
+
+Two design choices worth knowing:
+
+1. We ask Gemini for STRICT JSON that matches `GarmentAttributes`. The SDK
+   validates the model's answer against that schema for us, so the worker
+   receives a real Python object, not a blob of text to parse and pray over.
+
+2. We translate Gemini's errors into our own TransientError / PermanentError
+   (PRD 6.3), so the worker can decide "retry" vs "give up" without knowing
+   anything about Gemini's specific error types.
+"""
+
+from pydantic import BaseModel, Field
+
+from app.config import settings
+from app.core.errors import PermanentError, TransientError
+
+# Bump this whenever the fields below change. It is stored on each garment row
+# so we can later find and re-extract rows that used an older format (PRD 8.2).
+SCHEMA_VERSION = 1
+
+
+class GarmentAttributes(BaseModel):
+    """The description we want back for every garment.
+
+    Some fields are not read yet (temperature range, rain suitability, formality).
+    We extract them now anyway, because PRD 12.2 and 12.3 say the schema must
+    already carry them — so weather and occasion filters can be switched on later
+    with no re-extraction of the whole wardrobe.
+    """
+
+    is_garment: bool = Field(
+        description="True only if the photo actually shows a wearable clothing item."
+    )
+    category: str = Field(
+        description="One of: top, bottom, dress, outerwear, footwear, accessory, other."
+    )
+    subcategory: str = Field(description="Specific type, e.g. t-shirt, chinos, blazer, sneakers.")
+    primary_color: str = Field(description="The main colour, in plain words, e.g. navy blue.")
+    secondary_colors: list[str] = Field(
+        default_factory=list, description="Other notable colours, if any."
+    )
+    pattern: str = Field(description="solid, striped, checked, floral, graphic, or other.")
+    material: str = Field(description="Best guess of the fabric, e.g. cotton, denim, wool.")
+    formality: int = Field(
+        ge=1, le=5, description="1 = very casual (gym), 5 = very formal (black tie)."
+    )
+    seasons: list[str] = Field(
+        default_factory=list,
+        description="Any of: spring, summer, autumn, winter — when the item suits.",
+    )
+    min_temp_c: int = Field(description="Lowest comfortable temperature in Celsius.")
+    max_temp_c: int = Field(description="Highest comfortable temperature in Celsius.")
+    rain_suitable: bool = Field(description="True if the item is fine to wear in the rain.")
+    description: str = Field(description="One short sentence describing the item.")
+    notes: str = Field(
+        default="", description="If is_garment is false, say briefly what the photo shows instead."
+    )
+
+
+_PROMPT = (
+    "You are a fashion cataloguer. Look at this single clothing item and fill in "
+    "the structured fields. Judge colour, fabric and formality from what you see. "
+    "If the photo does not clearly show one wearable garment (for example it is a "
+    "person, a room, a blurry mess, or several items at once), set is_garment to "
+    "false and explain in notes."
+)
+
+# The client is built once, on first use, not at import time. That keeps a bad
+# or missing key from breaking every import of the app; the failure shows up only
+# when a worker actually tries to use it.
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        from google import genai  # imported lazily so the web app need not load it
+
+        _client = genai.Client(api_key=settings.gemini_api_key)
+    return _client
+
+
+# Gemini HTTP status codes that mean "try again later" rather than "this will
+# never work". Everything else is treated as permanent.
+_TRANSIENT_CODES = {429, 500, 502, 503, 504}
+
+
+def extract_attributes(image_bytes: bytes, mime_type: str) -> GarmentAttributes:
+    """Send one image to Gemini and return its structured description.
+
+    Raises TransientError for problems worth retrying, PermanentError otherwise.
+    """
+    from google.genai import types
+    from google.genai import errors as genai_errors
+
+    client = _get_client()
+
+    try:
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                _PROMPT,
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=GarmentAttributes,
+                # We only want a JSON answer, never tool calls — turning this off
+                # keeps a noisy SDK warning out of the worker logs.
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+    except genai_errors.APIError as exc:
+        # A real answer from Gemini's servers, with a status code we can classify.
+        code = getattr(exc, "code", None)
+        if code in _TRANSIENT_CODES:
+            raise TransientError(f"Gemini {code}: {exc}") from exc
+        raise PermanentError(f"Gemini rejected the request ({code}): {exc}") from exc
+    except Exception as exc:
+        # Network blip, timeout, DNS — no status code reached us. Worth a retry.
+        raise TransientError(f"Could not reach Gemini: {exc}") from exc
+
+    # The SDK already parsed the JSON against GarmentAttributes for us.
+    parsed = response.parsed
+    if parsed is None:
+        # The model answered but produced nothing usable — often a safety block.
+        # One retry is cheap; if it keeps happening the worker gives up.
+        raise TransientError("Gemini returned no structured result.")
+    return parsed

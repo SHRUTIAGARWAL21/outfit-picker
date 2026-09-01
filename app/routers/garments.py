@@ -5,6 +5,8 @@ every new garment simply sits at status PENDING. A worker will move it along in
 Step 3.
 """
 
+import uuid
+
 import cloudinary.api
 import cloudinary.exceptions
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,8 +15,9 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.core.storage import garment_folder, sign_upload
 from app.db import get_db
-from app.models import Garment, User
+from app.models import Garment, GarmentStatus, User
 from app.schemas.garment import GarmentCreate, GarmentResponse, UploadSignatureResponse
+from app.workers.tasks import extract_garment_attributes
 
 router = APIRouter(prefix="/garments", tags=["garments"])
 
@@ -55,7 +58,8 @@ def create_garment(
             detail="Upload not found in storage",
         ) from None
 
-    # 3. Save the row. Status defaults to PENDING (no AI yet).
+    # 3. Save the row FIRST. The database row is the durable proof of the upload
+    #    (PRD 10.2). Status defaults to PENDING.
     garment = Garment(
         user_id=user.id,
         image_url=resource["secure_url"],
@@ -64,6 +68,15 @@ def create_garment(
     db.add(garment)
     db.commit()
     db.refresh(garment)
+
+    # 4. THEN put it on the queue for the worker to describe. If the broker is
+    #    briefly down, we do not fail the upload — the row is safely saved, and
+    #    the recovery job (Step 4) will re-queue any row left at PENDING.
+    try:
+        extract_garment_attributes.delay(str(garment.id))
+    except Exception:
+        pass
+
     return garment
 
 
@@ -79,3 +92,37 @@ def list_garments(
         .order_by(Garment.created_at.desc())
         .all()
     )
+
+
+@router.post("/{garment_id}/retry", response_model=GarmentResponse)
+def retry_garment(
+    garment_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Garment:
+    """Re-run the worker on a FAILED garment (PRD 4.3).
+
+    Only the owner may do this, and only a FAILED row qualifies — a READY row is
+    already done, and a PENDING/PROCESSING row is still on its way.
+    """
+    garment = db.get(Garment, garment_id)
+    if garment is None or garment.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Garment not found")
+    if garment.status != GarmentStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only a FAILED garment can be retried (this one is {garment.status}).",
+        )
+
+    # Back to the start of the pipeline: clear the failure and re-queue.
+    garment.status = GarmentStatus.PENDING
+    garment.failure_reason = None
+    db.commit()
+    db.refresh(garment)
+
+    try:
+        extract_garment_attributes.delay(str(garment.id))
+    except Exception:
+        pass
+
+    return garment
