@@ -25,9 +25,16 @@ from sqlalchemy import and_, or_
 
 from app.celery_app import celery_app
 from app.core.errors import PermanentError, TransientError
-from app.core.gemini import SCHEMA_VERSION, extract_attributes, rank_outfits
+from app.core.gemini import (
+    SCHEMA_VERSION,
+    extract_attributes,
+    extract_avatar_profile,
+    rank_outfits,
+)
 from app.db import SessionLocal
 from app.models import (
+    Avatar,
+    AvatarStatus,
     Garment,
     GarmentStatus,
     Outfit,
@@ -239,6 +246,77 @@ def requeue_stuck_garments() -> dict:
         return {"requeued": requeued, "dead": dead, "scanned": len(stuck)}
     finally:
         db.close()
+
+
+def _fail_avatar(db, avatar_id: str, reason: str) -> None:
+    """Re-read the avatar on a clean session and mark it FAILED."""
+    db.rollback()
+    avatar = db.get(Avatar, uuid.UUID(avatar_id))
+    if avatar is not None:
+        avatar.status = AvatarStatus.FAILED
+        avatar.failure_reason = reason[:500]
+        db.commit()
+
+
+@celery_app.task(bind=True, name="avatars.extract_profile", max_retries=_MAX_RETRIES)
+def extract_avatar_profile_task(self, avatar_id: str) -> str:
+    """Read the user's base photo and fill in the styling profile (PRD 4.2).
+
+    Same machine as garment extraction: lock, guard, PROCESSING, download, read
+    with the vision model, save, READY (or FAILED for a bad photo).
+    """
+    lock = redis_client.lock(f"lock:avatar:{avatar_id}", timeout=_LOCK_TTL_SECONDS, blocking_timeout=0)
+    if not lock.acquire():
+        return "locked"
+
+    db = SessionLocal()
+    try:
+        avatar = db.get(Avatar, uuid.UUID(avatar_id))
+        if avatar is None:
+            return "missing"
+        if avatar.status == AvatarStatus.READY:
+            return "already-ready"
+
+        avatar.status = AvatarStatus.PROCESSING
+        avatar.attempts = (avatar.attempts or 0) + 1
+        db.commit()
+
+        try:
+            image_bytes, mime = _download_image(avatar.base_image_url)
+            profile = extract_avatar_profile(image_bytes, mime)
+
+            # Not a usable full-body photo: a permanent failure the user can fix
+            # by uploading a better picture. Do not retry.
+            if not profile.is_full_body:
+                avatar.status = AvatarStatus.FAILED
+                avatar.failure_reason = (profile.notes or "The photo is not a clear full-body image.")[:500]
+                db.commit()
+                return "not-full-body"
+
+            avatar.profile_json = profile.model_dump()
+            avatar.schema_version = SCHEMA_VERSION
+            avatar.status = AvatarStatus.READY
+            avatar.failure_reason = None
+            db.commit()
+            return "ready"
+
+        except PermanentError as exc:
+            _fail_avatar(db, avatar_id, str(exc))
+            return "failed-permanent"
+
+        except TransientError as exc:
+            try:
+                raise self.retry(exc=exc, countdown=5 * (self.request.retries + 1))
+            except self.MaxRetriesExceededError:
+                _fail_avatar(db, avatar_id, f"Kept failing: {exc}")
+                return "failed-exhausted"
+
+    finally:
+        db.close()
+        try:
+            lock.release()
+        except LockError:
+            pass
 
 
 def _fail_request(db, request_id: str) -> None:

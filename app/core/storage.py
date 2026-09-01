@@ -28,8 +28,14 @@ def garment_folder(user_id: str) -> str:
     return f"garments/{user_id}"
 
 
-def sign_upload(user_id: str) -> dict:
-    """Create a short-lived 'authorization slip' for a direct browser upload.
+def avatar_folder(user_id: str) -> str:
+    """Each user's avatar (base photo) lives in their own folder."""
+    return f"avatars/{user_id}"
+
+
+def _sign_upload_to(folder: str) -> dict:
+    """Create a short-lived 'authorization slip' for a direct browser upload into
+    `folder`.
 
     The signature is a fingerprint of (the upload parameters + our API secret).
     Only someone holding the secret can produce it, and the secret never leaves
@@ -37,7 +43,6 @@ def sign_upload(user_id: str) -> dict:
     Cloudinary recomputes the signature and accepts the upload only if it matches.
     """
     timestamp = int(time.time())
-    folder = garment_folder(user_id)
 
     # Exactly the parameters the browser must also send. Cloudinary signs these.
     params_to_sign = {"timestamp": timestamp, "folder": folder}
@@ -51,3 +56,13 @@ def sign_upload(user_id: str) -> dict:
         "signature": signature,
         "upload_url": f"https://api.cloudinary.com/v1_1/{settings.cloudinary_cloud_name}/image/upload",
     }
+
+
+def sign_upload(user_id: str) -> dict:
+    """A signed slip to upload one garment image into this user's garment folder."""
+    return _sign_upload_to(garment_folder(user_id))
+
+
+def sign_avatar_upload(user_id: str) -> dict:
+    """A signed slip to upload the base photo into this user's avatar folder."""
+    return _sign_upload_to(avatar_folder(user_id))

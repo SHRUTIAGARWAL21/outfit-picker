@@ -141,6 +141,42 @@ def extract_attributes(image_bytes: bytes, mime_type: str) -> GarmentAttributes:
     return _generate([part, _PROMPT], GarmentAttributes)
 
 
+# --- Avatar profile (base image) -------------------------------------------
+
+
+class AvatarProfile(BaseModel):
+    """The styling facts read from the user's full-body base photo (PRD 4.2)."""
+
+    is_full_body: bool = Field(
+        description="True only if the photo clearly shows one whole person, head to feet."
+    )
+    body_shape: str = Field(description="e.g. rectangle, triangle, inverted triangle, hourglass, oval.")
+    build: str = Field(description="Overall build, e.g. slim, average, athletic, curvy, broad.")
+    skin_undertone: str = Field(description="warm, cool, or neutral.")
+    hair_color: str = Field(description="The hair colour in plain words.")
+    eye_color: str = Field(description="The eye colour, or 'unknown' if not visible.")
+    notes: str = Field(
+        default="", description="If is_full_body is false, say briefly what the photo shows instead."
+    )
+
+
+_AVATAR_PROMPT = (
+    "You are building a styling profile from a person's full-body photo. Read the "
+    "body shape, overall build, skin undertone, hair colour and eye colour. If the "
+    "image is not a clear, single, head-to-toe photo of one person, set "
+    "is_full_body to false and explain in notes."
+)
+
+
+def extract_avatar_profile(image_bytes: bytes, mime_type: str) -> AvatarProfile:
+    """Read the base photo and return the styling profile. Same error rules as
+    garment extraction: TransientError to retry, PermanentError to give up."""
+    from google.genai import types
+
+    part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+    return _generate([part, _AVATAR_PROMPT], AvatarProfile)
+
+
 # --- Recommendation ranking (Step 5) ---------------------------------------
 
 
