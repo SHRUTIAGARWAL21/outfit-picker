@@ -10,12 +10,22 @@ export default function Outfits() {
   const [request, setRequest] = useState(null) // the request + its outfits
   const [error, setError] = useState('')
   const [quota, setQuota] = useState(null)
+  const [hasAvatar, setHasAvatar] = useState(true) // assume yes until we know
   const esRef = useRef(null) // the live image stream (EventSource)
 
   // Show how many renders are left today.
   useEffect(() => {
     api.getQuota().then(setQuota).catch(() => {})
   }, [request])
+
+  // Images only generate if the user has a READY avatar. Check once so we can
+  // warn them, instead of showing "Generating…" forever for nothing.
+  useEffect(() => {
+    api
+      .getAvatar()
+      .then((a) => setHasAvatar(a?.status === 'READY'))
+      .catch(() => setHasAvatar(false)) // 404 = no avatar
+  }, [])
 
   // Close the live stream if the screen unmounts.
   useEffect(() => () => esRef.current?.close(), [])
@@ -111,6 +121,13 @@ export default function Outfits() {
         </button>
       </form>
 
+      {!hasAvatar && (
+        <div className="notice">
+          You have no avatar yet, so outfits show as text only. Add a full-body photo on the{' '}
+          <strong>Avatar</strong> tab to get rendered images.
+        </div>
+      )}
+
       {error && <div className="error">{error}</div>}
       {phase === 'thinking' && <div className="muted">Choosing outfits from your wardrobe…</div>}
       {phase === 'failed' && (
@@ -120,7 +137,7 @@ export default function Outfits() {
       {request && (
         <div className="outfits">
           {request.outfits.map((o) => (
-            <OutfitCard key={o.id} outfit={o} />
+            <OutfitCard key={o.id} outfit={o} hasAvatar={hasAvatar} />
           ))}
         </div>
       )}

@@ -9,7 +9,7 @@ import { api } from './api'
 //   outfit         the outfit data
 //   initialSignal  'like' | 'dislike' | null — the user's existing feedback
 //   onChanged      optional callback(outfitId, newSignal) after a change
-export default function OutfitCard({ outfit, initialSignal = null, onChanged }) {
+export default function OutfitCard({ outfit, initialSignal = null, onChanged, hasAvatar = true }) {
   const [signal, setSignal] = useState(initialSignal)
   const [busy, setBusy] = useState(false)
 
@@ -36,7 +36,11 @@ export default function OutfitCard({ outfit, initialSignal = null, onChanged }) 
           <img src={outfit.render_url} alt={`Outfit ${outfit.rank}`} />
         ) : (
           <div className="render-placeholder muted small">
-            {outfit.render_status === 'FAILED' ? 'Image unavailable' : 'Generating image…'}
+            {outfit.render_status === 'FAILED'
+              ? 'Image unavailable'
+              : !hasAvatar
+                ? 'No image — add an avatar'
+                : 'Generating image…'}
           </div>
         )}
       </div>
