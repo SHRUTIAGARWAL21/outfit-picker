@@ -33,6 +33,20 @@ class Settings(BaseSettings):
     # http://localhost); MUST be True on the real, HTTPS server.
     cookie_secure: bool = False
 
+    # How the session cookie travels. "lax" is right for local dev (one origin).
+    # In production, when the frontend and backend are on different addresses,
+    # set this to "none" (and cookie_secure=true) so the cookie is sent along.
+    cookie_samesite: str = "lax"
+
+    # Which frontend origins may call this API (comma-separated). Empty in dev
+    # (the Vite proxy makes everything same-origin). In production set it to your
+    # deployed frontend URL, e.g. "https://outfit-web.onrender.com".
+    cors_origins: str = ""
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
     # --- Cloudinary (image storage) ---
     # All three required. The secret is used server-side to sign uploads, so the
     # browser can upload straight to Cloudinary without us proxying the file.

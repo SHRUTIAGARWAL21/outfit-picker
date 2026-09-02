@@ -6,6 +6,7 @@ knows how to answer two simple questions; we add real features step by step.
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import settings
@@ -20,6 +21,18 @@ app = FastAPI(
     version="0.1.0",
     description="Virtual try-on and outfit recommendations from your own wardrobe.",
 )
+
+# In production the frontend is a separate origin, so allow it to call this API
+# and send the session cookie. In dev cors_origins is empty and the Vite proxy
+# keeps everything same-origin, so no middleware is added.
+if settings.cors_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,  # let the browser send the session cookie
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Attach the route groups to the app.
 app.include_router(auth.router)

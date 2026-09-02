@@ -1,0 +1,74 @@
+# Render.com blueprint — describes the three services to deploy.
+# Data services (Postgres, Redis, Cloudinary, Gemini) are external and are
+# supplied as environment variables you set in the Render dashboard.
+#
+# Secrets (sync: false) are NOT read from this file — you type them into the
+# dashboard once, so they never live in git.
+
+services:
+  # 1) The API — a web service running FastAPI (uvicorn).
+  - type: web
+    name: outfit-api
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: ENV
+        value: prod
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false   # set to your frontend URL, e.g. https://outfit-web.onrender.com
+
+  # 2) The worker — runs Celery (all the slow AI work). NOTE: a background
+  #    worker is a paid instance on Render.
+  - type: worker
+    name: outfit-worker
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A app.celery_app worker --loglevel=info"
+    envVars:
+      - key: ENV
+        value: prod
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  # 3) The frontend — a static site built by Vite.
+  - type: web
+    name: outfit-web
+    runtime: static
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false   # set to your API URL, e.g. https://outfit-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

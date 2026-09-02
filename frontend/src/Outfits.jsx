@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from './api'
+import { api, API_BASE } from './api'
 import OutfitCard from './OutfitCard.jsx'
 
 // The heart of the app: type what you need, get ranked outfits, then watch the
@@ -82,7 +82,8 @@ export default function Outfits() {
   // Open the Server-Sent Events stream. The server PUSHES one message per outfit
   // as its image finishes, so pictures appear the instant they are ready.
   function startImageStream(id) {
-    const es = new EventSource(`/api/requests/${id}/stream`)
+    // withCredentials so the session cookie is sent when the API is a separate origin.
+    const es = new EventSource(`${API_BASE}/requests/${id}/stream`, { withCredentials: true })
     esRef.current = es
 
     es.onmessage = (ev) => {

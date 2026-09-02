@@ -28,7 +28,7 @@ def _set_session_cookie(response: Response, session_id: str) -> None:
         max_age=SESSION_TTL_SECONDS,
         httponly=True,              # JavaScript can't read it → a script can't steal it
         secure=settings.cookie_secure,  # only sent over HTTPS in production
-        samesite="lax",             # not sent from other sites → blocks CSRF attacks
+        samesite=settings.cookie_samesite,  # "lax" in dev, "none" for a split frontend/backend
     )
 
 
