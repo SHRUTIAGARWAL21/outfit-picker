@@ -25,3 +25,7 @@ tmp/
 # Celery Beat's local schedule file
 celerybeat-schedule*
 celerybeat.pid
+
+# Frontend (Node)
+node_modules/
+frontend/dist/

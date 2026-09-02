@@ -64,13 +64,21 @@ The web app never calls the AI itself — it hands each garment to a background
 worker through the Redis queue. Start the worker in a **second terminal**:
 
 ```bash
-celery -A app.celery_app worker --loglevel=info --pool=solo --beat
+celery -A app.celery_app worker --loglevel=info --pool=solo
 ```
 
-`--pool=solo` is required on Windows. On Linux or macOS you can drop it. `--beat`
-runs the recovery scheduler (Step 4) inside the same worker: every 2 minutes it
-re-queues any garment stuck at `PENDING` (>5 min) or `PROCESSING` (>10 min), and
-marks one `DEAD` after too many failed attempts.
+`--pool=solo` is required on Windows. On Linux or macOS you can drop it.
+
+**The recovery scheduler (Beat, Step 4)** re-queues garments stuck at `PENDING`
+(>5 min) or `PROCESSING` (>10 min) and marks one `DEAD` after too many failed
+attempts. It runs every 2 minutes and is optional for local testing.
+
+- **Windows:** Beat cannot run inside the worker (`--beat` is rejected). Run it
+  in a **separate terminal**:
+  ```bash
+  celery -A app.celery_app beat --loglevel=info
+  ```
+- **Linux / macOS:** you may instead embed it in the worker with `--beat`.
 
 You also need `GEMINI_API_KEY` in `.env` (free key from
 <https://aistudio.google.com> → "Get API key"). Without the worker running, an

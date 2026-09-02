@@ -48,11 +48,15 @@ celery_app.conf.update(
 
 # The recovery job (Step 4, PRD 6.2). Beat is Celery's alarm clock: every two
 # minutes it drops a "run the inspector" message on the queue. The inspector task
-# then finds stuck garments and re-queues them. Start Beat alongside the worker:
+# then finds stuck garments and re-queues them.
 #
-#     celery -A app.celery_app worker --pool=solo --beat --loglevel=info
+# Run the worker and Beat. On Windows they MUST be separate processes (Celery
+# rejects `--beat` inside the worker there):
 #
-# (`--beat` runs the clock inside the worker — handy for one-machine development.)
+#     celery -A app.celery_app worker --pool=solo --loglevel=info   # terminal 1
+#     celery -A app.celery_app beat --loglevel=info                 # terminal 2
+#
+# On Linux/macOS you may instead embed Beat in the worker with `--beat`.
 celery_app.conf.beat_schedule = {
     "requeue-stuck-garments-every-2-min": {
         "task": "garments.requeue_stuck",
