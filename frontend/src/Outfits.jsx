@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import OutfitCard from './OutfitCard.jsx'
 
 // The heart of the app: type what you need, get ranked outfits, then watch the
 // rendered images stream in one by one.
@@ -123,38 +124,6 @@ export default function Outfits() {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// One outfit: the rendered image (or a placeholder while it generates), the
-// reason, and the garment thumbnails it is made of.
-function OutfitCard({ outfit }) {
-  return (
-    <div className="card outfit">
-      <div className="render">
-        {outfit.render_url ? (
-          <img src={outfit.render_url} alt={`Outfit ${outfit.rank}`} />
-        ) : (
-          <div className="render-placeholder muted small">
-            {outfit.render_status === 'FAILED' ? 'Image unavailable' : 'Generating image…'}
-          </div>
-        )}
-      </div>
-      <div className="outfit-body">
-        <div className="rank">#{outfit.rank}</div>
-        <p className="reason">{outfit.reason}</p>
-        <div className="pieces">
-          {outfit.garments.map((g) => (
-            <div
-              key={g.id}
-              className="piece"
-              style={{ backgroundImage: `url(${g.image_url})` }}
-              title={g.attributes?.description || ''}
-            />
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

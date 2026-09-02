@@ -58,6 +58,12 @@ export const api = {
   getRequest: (id) => request(`/requests/${id}`),
   renderRequest: (id) => request(`/requests/${id}/render`, { method: 'POST' }),
 
+  // --- likes / interest ---
+  likeOutfit: (id) => request(`/outfits/${id}/like`, { method: 'POST' }),
+  dislikeOutfit: (id) => request(`/outfits/${id}/dislike`, { method: 'POST' }),
+  clearFeedback: (id) => request(`/outfits/${id}/feedback`, { method: 'DELETE' }),
+  listInterest: () => request('/interest'),
+
   // --- quota ---
   getQuota: () => request('/quota'),
 }

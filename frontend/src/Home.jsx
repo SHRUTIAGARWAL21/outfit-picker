@@ -3,13 +3,15 @@ import { api } from './api'
 import Wardrobe from './Wardrobe.jsx'
 import Avatar from './Avatar.jsx'
 import Outfits from './Outfits.jsx'
+import Interest from './Interest.jsx'
 
 // The shell shown once you are logged in: the top bar, the tabs, and whichever
-// screen the active tab points to. The Saved tab comes next.
+// screen the active tab points to.
 const TABS = [
   { key: 'wardrobe', label: 'Wardrobe' },
   { key: 'avatar', label: 'Avatar' },
   { key: 'outfits', label: 'Outfits' },
+  { key: 'saved', label: 'Saved' },
 ]
 
 export default function Home({ user, onLogout }) {
@@ -45,6 +47,7 @@ export default function Home({ user, onLogout }) {
         {tab === 'wardrobe' && <Wardrobe />}
         {tab === 'avatar' && <Avatar />}
         {tab === 'outfits' && <Outfits />}
+        {tab === 'saved' && <Interest />}
       </main>
     </div>
   )
