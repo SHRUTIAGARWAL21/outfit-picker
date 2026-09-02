@@ -63,26 +63,36 @@ export default function Avatar() {
       <div className="section-head">
         <h2>Your avatar</h2>
         <button onClick={() => fileRef.current?.click()} disabled={uploading}>
-          {uploading ? 'Uploading…' : avatar ? 'Replace photo' : '+ Upload full-body photo'}
+          {uploading ? 'Uploading…' : avatar ? 'Replace photo' : '＋ Upload full-body photo'}
         </button>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
       </div>
 
       {!avatar ? (
-        <div className="empty muted">
-          Upload one clear, full-body photo with a plain background. It becomes the base image we
-          dress in your outfits.
+        <div className="avatar-create">
+          <div className="empty">
+            Upload one clear, full-body photo with a plain background — or, if you’d rather not,
+            build an avatar by answering a few questions below. 🌸
+          </div>
+          <GenerateForm onStarted={() => setRefreshKey((k) => k + 1)} />
         </div>
       ) : (
         <div className="avatar-view">
-          <div className="thumb big" style={{ backgroundImage: `url(${avatar.base_image_url})` }} />
+          <div
+            className="thumb big"
+            style={avatar.base_image_url ? { backgroundImage: `url(${avatar.base_image_url})` } : undefined}
+          >
+            {!avatar.base_image_url && <span className="muted small">Creating…</span>}
+          </div>
           <div className="avatar-side">
             <StatusBadge status={avatar.status} />
             {avatar.status === 'FAILED' && (
               <div className="error small">{avatar.failure_reason}</div>
             )}
             {(avatar.status === 'PENDING' || avatar.status === 'PROCESSING') && (
-              <div className="muted small">Reading your photo…</div>
+              <div className="muted small">
+                {avatar.base_image_url ? 'Reading your photo…' : 'Creating your avatar…'}
+              </div>
             )}
             {avatar.status === 'READY' && avatar.profile && (
               <ProfileForm profile={avatar.profile} onSaved={() => setRefreshKey((k) => k + 1)} />
@@ -91,6 +101,70 @@ export default function Avatar() {
         </div>
       )}
     </div>
+  )
+}
+
+// The no-photo path: pick a few options and the app generates an avatar.
+function GenerateForm({ onStarted }) {
+  const OPTIONS = {
+    body_type: ['slim', 'average', 'athletic', 'curvy', 'plus-size'],
+    height: ['short', 'average', 'tall'],
+    gender_presentation: ['feminine', 'masculine', 'androgynous'],
+    skin_tone: ['fair', 'light', 'medium', 'tan', 'deep', 'dark'],
+    hair_length: ['short', 'medium', 'long'],
+    hair_texture: ['straight', 'wavy', 'curly', 'coily'],
+    hair_color: ['black', 'dark brown', 'brown', 'blonde', 'red', 'grey'],
+    eye_color: ['brown', 'black', 'hazel', 'green', 'blue', 'grey'],
+  }
+  const [sel, setSel] = useState({
+    body_type: 'average',
+    height: 'average',
+    gender_presentation: 'feminine',
+    skin_tone: 'medium',
+    hair_length: 'medium',
+    hair_texture: 'straight',
+    hair_color: 'dark brown',
+    eye_color: 'brown',
+  })
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await api.generateAvatar(sel)
+      onStarted() // start polling; the worker generates the image
+    } catch (err) {
+      alert(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="card generate" onSubmit={submit}>
+      <h3>Build an animated avatar from a few questions</h3>
+      <div className="generate-grid">
+        {Object.entries(OPTIONS).map(([field, opts]) => (
+          <label key={field} className="field">
+            <span className="muted small">{field.replace(/_/g, ' ')}</span>
+            <select value={sel[field]} onChange={(e) => setSel({ ...sel, [field]: e.target.value })}>
+              {opts.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <button type="submit" disabled={busy}>
+        {busy ? 'Generating…' : '✨ Generate my avatar'}
+      </button>
+      <p className="muted small">
+        This draws a cute animated character from your answers (uses your image key). It can take up
+        to a minute.
+      </p>
+    </form>
   )
 }
 

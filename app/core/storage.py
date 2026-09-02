@@ -70,6 +70,18 @@ def sign_avatar_upload(user_id: str) -> dict:
     return _sign_upload_to(avatar_folder(user_id))
 
 
+def upload_avatar(user_id: str, avatar_id: str, image_bytes: bytes) -> tuple[str, str]:
+    """Save a generated avatar image (raw bytes from the AI) into our storage.
+    Returns (public_id, secure_url)."""
+    result = cloudinary.uploader.upload(
+        io.BytesIO(image_bytes),
+        folder=avatar_folder(user_id),
+        public_id=str(avatar_id),
+        overwrite=True,
+    )
+    return result["public_id"], result["secure_url"]
+
+
 def render_folder(user_id: str) -> str:
     """Each user's rendered outfit images live in their own folder."""
     return f"renders/{user_id}"

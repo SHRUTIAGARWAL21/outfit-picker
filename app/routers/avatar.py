@@ -15,8 +15,8 @@ from app.core.deps import get_current_user
 from app.core.storage import avatar_folder, sign_avatar_upload
 from app.db import get_db
 from app.models import Avatar, AvatarStatus, User
-from app.schemas.avatar import AvatarCreate, AvatarProfileUpdate, AvatarResponse
-from app.workers.tasks import extract_avatar_profile_task
+from app.schemas.avatar import AvatarCreate, AvatarGenerate, AvatarProfileUpdate, AvatarResponse
+from app.workers.tasks import extract_avatar_profile_task, generate_avatar_task
 
 router = APIRouter(prefix="/avatar", tags=["avatar"])
 
@@ -73,6 +73,39 @@ def set_avatar(
         extract_avatar_profile_task.delay(str(avatar.id))
     except Exception:
         pass  # broker blip: the row is saved; recovery can re-queue later
+
+    return avatar
+
+
+@router.post("/generate", response_model=AvatarResponse, status_code=status.HTTP_201_CREATED)
+def generate_avatar(
+    payload: AvatarGenerate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Avatar:
+    """The no-photo path: create an avatar from a few selections (PRD 4.2).
+
+    We save the row now (no image yet) and a worker generates the image and reads
+    its profile. One avatar per user, so this replaces any existing one.
+    """
+    avatar = db.query(Avatar).filter(Avatar.user_id == user.id).one_or_none()
+    if avatar is None:
+        avatar = Avatar(user_id=user.id, status=AvatarStatus.PENDING)
+        db.add(avatar)
+    else:
+        avatar.status = AvatarStatus.PENDING
+        avatar.base_image_url = None
+        avatar.base_image_public_id = None
+        avatar.profile_json = None
+        avatar.failure_reason = None
+
+    db.commit()
+    db.refresh(avatar)
+
+    try:
+        generate_avatar_task.delay(str(avatar.id), payload.model_dump())
+    except Exception:
+        pass
 
     return avatar
 

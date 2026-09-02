@@ -30,10 +30,11 @@ from app.core.gemini import (
     SCHEMA_VERSION,
     extract_attributes,
     extract_avatar_profile,
+    generate_avatar_image,
     rank_outfits,
     render_outfit,
 )
-from app.core.storage import upload_render
+from app.core.storage import upload_avatar, upload_render
 from app.db import SessionLocal
 from app.models import (
     Avatar,
@@ -298,6 +299,81 @@ def extract_avatar_profile_task(self, avatar_id: str) -> str:
                 return "not-full-body"
 
             avatar.profile_json = profile.model_dump()
+            avatar.schema_version = SCHEMA_VERSION
+            avatar.status = AvatarStatus.READY
+            avatar.failure_reason = None
+            db.commit()
+            return "ready"
+
+        except PermanentError as exc:
+            _fail_avatar(db, avatar_id, str(exc))
+            return "failed-permanent"
+
+        except TransientError as exc:
+            try:
+                raise self.retry(exc=exc, countdown=5 * (self.request.retries + 1))
+            except self.MaxRetriesExceededError:
+                _fail_avatar(db, avatar_id, f"Kept failing: {exc}")
+                return "failed-exhausted"
+
+    finally:
+        db.close()
+        try:
+            lock.release()
+        except LockError:
+            pass
+
+
+@celery_app.task(bind=True, name="avatars.generate", max_retries=_MAX_RETRIES)
+def generate_avatar_task(self, avatar_id: str, selections: dict) -> str:
+    """Build a base avatar from selections, then read its profile (PRD 4.2).
+
+    The no-photo path: generate a full-body image with the image model, store it,
+    then run the same profile extraction as an uploaded photo would.
+    """
+    lock = redis_client.lock(f"lock:avatar:{avatar_id}", timeout=_LOCK_TTL_SECONDS, blocking_timeout=0)
+    if not lock.acquire():
+        return "locked"
+
+    db = SessionLocal()
+    try:
+        avatar = db.get(Avatar, uuid.UUID(avatar_id))
+        if avatar is None:
+            return "missing"
+        if avatar.status == AvatarStatus.READY:
+            return "already-ready"
+
+        avatar.status = AvatarStatus.PROCESSING
+        avatar.attempts = (avatar.attempts or 0) + 1
+        db.commit()
+
+        try:
+            image_bytes, _mime = generate_avatar_image(selections)
+            public_id, url = upload_avatar(str(avatar.user_id), str(avatar.id), image_bytes)
+            avatar.base_image_url = url
+            avatar.base_image_public_id = public_id
+
+            # We already know the traits (the user chose them), so set the profile
+            # straight from the selections instead of a vision call. The user can
+            # still correct it. This also avoids the "not a real photo" rejection.
+            hair = " ".join(
+                x
+                for x in (
+                    selections.get("hair_length"),
+                    selections.get("hair_texture"),
+                    selections.get("hair_color"),
+                )
+                if x
+            )
+            avatar.profile_json = {
+                "is_full_body": True,
+                "body_shape": selections.get("body_type", "average"),
+                "build": selections.get("body_type", "average"),
+                "skin_undertone": selections.get("skin_tone", "medium"),
+                "hair_color": hair or "brown",
+                "eye_color": selections.get("eye_color", "brown"),
+                "notes": "Generated avatar",
+            }
             avatar.schema_version = SCHEMA_VERSION
             avatar.status = AvatarStatus.READY
             avatar.failure_reason = None

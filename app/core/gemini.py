@@ -218,27 +218,14 @@ _RENDER_INSTRUCTION = (
 )
 
 
-def render_outfit(
-    base_image: bytes,
-    base_mime: str,
-    garment_images: list[tuple[bytes, str]],
-) -> tuple[bytes, str]:
-    """Generate an image of the person (base) wearing the given garments.
-
-    Returns (image_bytes, mime_type). Same error rules as the other calls:
-    TransientError to retry, PermanentError to give up.
-    """
-    from google.genai import types
+def _generate_image(contents) -> tuple[bytes, str]:
+    """Shared plumbing for any image-generation call: send `contents`, dig the
+    generated image out of the reply, and translate errors. Returns (bytes, mime)."""
     from google.genai import errors as genai_errors
 
     client = _get_image_client()
-    parts = [types.Part.from_bytes(data=base_image, mime_type=base_mime)]
-    for data, mime in garment_images:
-        parts.append(types.Part.from_bytes(data=data, mime_type=mime))
-    parts.append(_RENDER_INSTRUCTION)
-
     try:
-        response = client.models.generate_content(model=settings.gemini_image_model, contents=parts)
+        response = client.models.generate_content(model=settings.gemini_image_model, contents=contents)
     except genai_errors.APIError as exc:
         code = getattr(exc, "code", None)
         if code in _TRANSIENT_CODES:
@@ -247,7 +234,6 @@ def render_outfit(
     except Exception as exc:
         raise TransientError(f"Could not reach Gemini image: {exc}") from exc
 
-    # Find the generated image among the returned parts.
     for candidate in response.candidates or []:
         content = candidate.content
         for part in (content.parts if content else []) or []:
@@ -256,7 +242,43 @@ def render_outfit(
                 return inline.data, inline.mime_type or "image/png"
 
     # No image came back — usually a safety refusal. Not worth retrying.
-    raise PermanentError("Gemini returned no image for this outfit.")
+    raise PermanentError("Gemini returned no image.")
+
+
+def render_outfit(
+    base_image: bytes,
+    base_mime: str,
+    garment_images: list[tuple[bytes, str]],
+) -> tuple[bytes, str]:
+    """Generate an image of the person (base) wearing the given garments."""
+    from google.genai import types
+
+    parts = [types.Part.from_bytes(data=base_image, mime_type=base_mime)]
+    for data, mime in garment_images:
+        parts.append(types.Part.from_bytes(data=data, mime_type=mime))
+    parts.append(_RENDER_INSTRUCTION)
+    return _generate_image(parts)
+
+
+def generate_avatar_image(selections: dict) -> tuple[bytes, str]:
+    """Create an animated (illustrated) base avatar from selections (PRD 4.2)."""
+    s = selections
+    prompt = (
+        "Create a full-body 3D animated character illustration in a friendly, "
+        "polished Pixar / Disney animation style — cute and stylised, NOT "
+        "photorealistic. One single character, standing straight and facing "
+        "forward, head to toe fully visible, against a plain soft pastel "
+        "background, with a gentle smile, wearing plain simple fitted neutral "
+        "clothing (a plain t-shirt and plain shorts or leggings) so outfits can be "
+        "shown on the character later. The character has a "
+        f"{s.get('body_type', 'average')} build, {s.get('height', 'average')} height, "
+        f"a {s.get('gender_presentation', 'androgynous')} presentation, "
+        f"{s.get('skin_tone', 'medium')} skin, "
+        f"{s.get('hair_length', 'medium')} {s.get('hair_texture', 'straight')} "
+        f"{s.get('hair_color', 'brown')} hair, and {s.get('eye_color', 'brown')} eyes. "
+        "Clean, high quality, centred, no text, no watermark."
+    )
+    return _generate_image([prompt])
 
 
 def rank_outfits(prompt_text: str, garments: list[dict], count: int) -> list[OutfitPick]:

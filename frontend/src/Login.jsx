@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { api } from './api'
+import Flower from './Flower.jsx'
 
-// The login / signup screen. One form does both, toggled by `mode`.
+// The landing page: a pretty welcome with the "diva" tagline and flowers,
+// plus the login / signup form. One form does both, toggled by `mode`.
 export default function Login({ onLoggedIn }) {
   const [mode, setMode] = useState('login') // 'login' or 'signup'
   const [email, setEmail] = useState('')
@@ -10,14 +12,13 @@ export default function Login({ onLoggedIn }) {
   const [busy, setBusy] = useState(false)
 
   async function submit(e) {
-    e.preventDefault() // stop the browser from reloading the page
+    e.preventDefault()
     setError('')
     setBusy(true)
     try {
-      // Sign-up only creates the account; logging in is what starts the session.
       if (mode === 'signup') await api.signup(email, password)
       const user = await api.login(email, password)
-      onLoggedIn(user) // hand the logged-in user up to App
+      onLoggedIn(user)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -27,49 +28,60 @@ export default function Login({ onLoggedIn }) {
 
   return (
     <div className="center">
-      <form className="card auth" onSubmit={submit}>
-        <h1>Outfit Picker</h1>
-        <p className="muted">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</p>
+      <div className="landing">
+        <div className="flowers-row">
+          <Flower size={34} petal="#e6b7e8" center="#f7a8cb" />
+          <Flower size={52} petal="#f7a8cb" center="#c9a7ef" />
+          <Flower size={34} petal="#c9a7ef" center="#f7a8cb" />
+        </div>
 
-        <label>Email</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          autoComplete="email"
-        />
+        <div className="diva">Let me help you to be the diva</div>
+        <p className="tag">Style outfits from the clothes you already own. 🌸</p>
 
-        <label>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-        />
+        <form className="card auth" onSubmit={submit}>
+          <h2>{mode === 'login' ? 'Welcome back, gorgeous' : 'Join the wardrobe'}</h2>
+          <p className="sub">{mode === 'login' ? 'Log in to your closet.' : 'Create your account.'}</p>
 
-        {error && <div className="error">{error}</div>}
+          <label>Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+          />
 
-        <button type="submit" disabled={busy}>
-          {busy ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Sign up'}
-        </button>
+          <label>Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          />
 
-        <p className="muted small">
-          {mode === 'login' ? "No account?" : 'Already have one?'}{' '}
-          <button
-            type="button"
-            className="link"
-            onClick={() => {
-              setError('')
-              setMode(mode === 'login' ? 'signup' : 'login')
-            }}
-          >
-            {mode === 'login' ? 'Sign up' : 'Log in'}
+          {error && <div className="error">{error}</div>}
+
+          <button type="submit" disabled={busy}>
+            {busy ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Sign up'}
           </button>
-        </p>
-      </form>
+
+          <p className="muted small" style={{ marginTop: 6 }}>
+            {mode === 'login' ? "New here?" : 'Already have an account?'}{' '}
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setError('')
+                setMode(mode === 'login' ? 'signup' : 'login')
+              }}
+            >
+              {mode === 'login' ? 'Sign up' : 'Log in'}
+            </button>
+          </p>
+        </form>
+      </div>
     </div>
   )
 }

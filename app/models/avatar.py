@@ -36,9 +36,11 @@ class Avatar(UUIDMixin, TimestampMixin, Base):
         nullable=False,
     )
 
-    # The base image in Cloudinary (the strings only, never the bytes).
-    base_image_url: Mapped[str] = mapped_column(Text, nullable=False)
-    base_image_public_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # The base image in Cloudinary (the strings only, never the bytes). Nullable
+    # because the "generate from questions" path creates the row first, then a
+    # worker fills the image in.
+    base_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_image_public_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(20),

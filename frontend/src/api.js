@@ -49,6 +49,8 @@ export const api = {
   avatarUploadSignature: () => request('/avatar/upload-signature', { method: 'POST' }),
   setAvatar: (public_id) =>
     request('/avatar', { method: 'POST', body: JSON.stringify({ public_id }) }),
+  generateAvatar: (selections) =>
+    request('/avatar/generate', { method: 'POST', body: JSON.stringify(selections) }),
   updateAvatarProfile: (profile) =>
     request('/avatar', { method: 'PATCH', body: JSON.stringify({ profile }) }),
 
