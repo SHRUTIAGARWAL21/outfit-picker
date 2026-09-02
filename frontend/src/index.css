@@ -89,6 +89,8 @@ button.link {
   background: var(--card); color: var(--text); font-size: 14px;
 }
 .profile button { align-self: flex-start; margin-top: 4px; }
+.save-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.saved-note { color: #16a34a; font-size: 13px; font-weight: 600; }
 
 /* --- outfits --- */
 .notice {

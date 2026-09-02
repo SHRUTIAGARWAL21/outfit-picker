@@ -101,11 +101,15 @@ function ProfileForm({ profile, onSaved }) {
     Object.fromEntries(FIELDS.map((f) => [f, profile[f] || ''])),
   )
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false) // show a confirmation after saving
 
   async function save() {
     setSaving(true)
+    setSaved(false)
     try {
       await api.updateAvatarProfile(values)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000) // fade the message after 3s
       onSaved()
     } catch (err) {
       alert(err.message)
@@ -119,12 +123,21 @@ function ProfileForm({ profile, onSaved }) {
       {FIELDS.map((f) => (
         <label key={f} className="field">
           <span className="muted small">{f.replace(/_/g, ' ')}</span>
-          <input value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })} />
+          <input
+            value={values[f]}
+            onChange={(e) => {
+              setValues({ ...values, [f]: e.target.value })
+              setSaved(false) // editing again clears the confirmation
+            }}
+          />
         </label>
       ))}
-      <button onClick={save} disabled={saving}>
-        {saving ? 'Saving…' : 'Save corrections'}
-      </button>
+      <div className="save-row">
+        <button onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save corrections'}
+        </button>
+        {saved && <span className="saved-note">✓ Saved</span>}
+      </div>
     </div>
   )
 }
