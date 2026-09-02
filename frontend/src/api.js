@@ -51,6 +51,15 @@ export const api = {
     request('/avatar', { method: 'POST', body: JSON.stringify({ public_id }) }),
   updateAvatarProfile: (profile) =>
     request('/avatar', { method: 'PATCH', body: JSON.stringify({ profile }) }),
+
+  // --- recommendations ---
+  createRequest: (prompt_text) =>
+    request('/requests', { method: 'POST', body: JSON.stringify({ prompt_text }) }),
+  getRequest: (id) => request(`/requests/${id}`),
+  renderRequest: (id) => request(`/requests/${id}/render`, { method: 'POST' }),
+
+  // --- quota ---
+  getQuota: () => request('/quota'),
 }
 
 // The browser uploads the file straight to Cloudinary using the signed slip the

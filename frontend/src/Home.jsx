@@ -2,12 +2,14 @@ import { useState } from 'react'
 import { api } from './api'
 import Wardrobe from './Wardrobe.jsx'
 import Avatar from './Avatar.jsx'
+import Outfits from './Outfits.jsx'
 
 // The shell shown once you are logged in: the top bar, the tabs, and whichever
-// screen the active tab points to. More tabs (Outfits, Saved) come next.
+// screen the active tab points to. The Saved tab comes next.
 const TABS = [
   { key: 'wardrobe', label: 'Wardrobe' },
   { key: 'avatar', label: 'Avatar' },
+  { key: 'outfits', label: 'Outfits' },
 ]
 
 export default function Home({ user, onLogout }) {
@@ -42,6 +44,7 @@ export default function Home({ user, onLogout }) {
       <main>
         {tab === 'wardrobe' && <Wardrobe />}
         {tab === 'avatar' && <Avatar />}
+        {tab === 'outfits' && <Outfits />}
       </main>
     </div>
   )
