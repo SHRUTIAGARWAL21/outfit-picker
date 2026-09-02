@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, uploadToCloudinary } from './api'
+import StatusBadge from './StatusBadge.jsx'
 
-// The main screen for now: upload garment photos and see their status.
-export default function Wardrobe({ user, onLogout }) {
+// Upload garment photos and see their status. Lives inside Home (the shell).
+export default function Wardrobe() {
   const [garments, setGarments] = useState([])
   const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0) // bump this to restart polling
@@ -58,50 +59,28 @@ export default function Wardrobe({ user, onLogout }) {
     setRefreshKey((k) => k + 1) // restart polling to watch the new PENDING photos
   }
 
-  async function logout() {
-    await api.logout()
-    onLogout()
-  }
-
   return (
-    <div className="app">
-      <header className="topbar">
-        <strong>Outfit Picker</strong>
-        <span className="muted small">{user.email}</span>
-        <button className="link" onClick={logout}>
-          Log out
+    <div>
+      <div className="section-head">
+        <h2>Your wardrobe</h2>
+        <button onClick={() => fileRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading…' : '+ Add clothes'}
         </button>
-      </header>
+        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onFiles} />
+      </div>
 
-      <main>
-        <div className="section-head">
-          <h2>Your wardrobe</h2>
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}>
-            {uploading ? 'Uploading…' : '+ Add clothes'}
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={onFiles}
-          />
+      {garments.length === 0 ? (
+        <div className="empty muted">
+          No clothes yet. Click <strong>“Add clothes”</strong> and upload a few flat photos of
+          garments.
         </div>
-
-        {garments.length === 0 ? (
-          <div className="empty muted">
-            No clothes yet. Click <strong>“Add clothes”</strong> and upload a few flat photos of
-            garments.
-          </div>
-        ) : (
-          <div className="grid">
-            {garments.map((g) => (
-              <GarmentCard key={g.id} g={g} />
-            ))}
-          </div>
-        )}
-      </main>
+      ) : (
+        <div className="grid">
+          {garments.map((g) => (
+            <GarmentCard key={g.id} g={g} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -126,14 +105,4 @@ function GarmentCard({ g }) {
       </div>
     </div>
   )
-}
-
-function StatusBadge({ status }) {
-  const label = {
-    PENDING: 'Waiting…',
-    PROCESSING: 'Analysing…',
-    READY: 'Ready',
-    FAILED: 'Failed',
-  }[status] || status
-  return <span className={`badge ${status.toLowerCase()}`}>{label}</span>
 }

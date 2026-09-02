@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import Login from './Login.jsx'
-import Wardrobe from './Wardrobe.jsx'
+import Home from './Home.jsx'
 
 // The top of the app. Its only job: figure out if someone is logged in, then
 // show either the Login screen or the Wardrobe.
@@ -21,5 +21,5 @@ export default function App() {
 
   if (loading) return <div className="center muted">Loading…</div>
   if (!user) return <Login onLoggedIn={setUser} />
-  return <Wardrobe user={user} onLogout={() => setUser(null)} />
+  return <Home user={user} onLogout={() => setUser(null)} />
 }

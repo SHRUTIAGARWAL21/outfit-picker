@@ -43,6 +43,14 @@ export const api = {
   createGarment: (public_id) =>
     request('/garments', { method: 'POST', body: JSON.stringify({ public_id }) }),
   retryGarment: (id) => request(`/garments/${id}/retry`, { method: 'POST' }),
+
+  // --- avatar ---
+  getAvatar: () => request('/avatar'), // 404 if the user has no avatar yet
+  avatarUploadSignature: () => request('/avatar/upload-signature', { method: 'POST' }),
+  setAvatar: (public_id) =>
+    request('/avatar', { method: 'POST', body: JSON.stringify({ public_id }) }),
+  updateAvatarProfile: (profile) =>
+    request('/avatar', { method: 'PATCH', body: JSON.stringify({ profile }) }),
 }
 
 // The browser uploads the file straight to Cloudinary using the signed slip the
