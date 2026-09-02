@@ -69,7 +69,11 @@ def create_request(
         )
 
     # Save the request FIRST, then queue the work (same rule as uploads, PRD 10.2).
-    req = OutfitRequest(user_id=user.id, prompt_text=payload.prompt_text)
+    req = OutfitRequest(
+        user_id=user.id,
+        prompt_text=payload.prompt_text,
+        occasion=(payload.occasion or None),
+    )
     db.add(req)
     db.commit()
     db.refresh(req)

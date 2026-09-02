@@ -55,8 +55,8 @@ export const api = {
     request('/avatar', { method: 'PATCH', body: JSON.stringify({ profile }) }),
 
   // --- recommendations ---
-  createRequest: (prompt_text) =>
-    request('/requests', { method: 'POST', body: JSON.stringify({ prompt_text }) }),
+  createRequest: (prompt_text, occasion = null) =>
+    request('/requests', { method: 'POST', body: JSON.stringify({ prompt_text, occasion }) }),
   getRequest: (id) => request(`/requests/${id}`),
   renderRequest: (id) => request(`/requests/${id}/render`, { method: 'POST' }),
 

@@ -10,6 +10,7 @@ class RecommendationCreate(BaseModel):
     """What the user sends to ask for outfits."""
 
     prompt_text: str = Field(min_length=1, max_length=1000)
+    occasion: str | None = None  # optional: office, party, gym, ...
 
 
 class GarmentBrief(BaseModel):

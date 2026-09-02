@@ -52,6 +52,10 @@ class OutfitRequest(UUIDMixin, TimestampMixin, Base):
     # The plain-text ask, e.g. "something for a warm day at the office".
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # Optional structured occasion (office, party, gym, ...). When set, Stage 1
+    # hard-filters garments by its formality range (PRD 12.3).
+    occasion: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Optional style reference photo (PRD 4.4). We read its style but never add it
     # to the wardrobe. Just the storage key here; not used until later.
     reference_image_key: Mapped[str | None] = mapped_column(String(255), nullable=True)

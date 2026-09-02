@@ -4,8 +4,11 @@ import OutfitCard from './OutfitCard.jsx'
 
 // The heart of the app: type what you need, get ranked outfits, then watch the
 // rendered images stream in one by one.
+const OCCASIONS = ['casual', 'office', 'party', 'wedding', 'gym', 'formal']
+
 export default function Outfits() {
   const [prompt, setPrompt] = useState('')
+  const [occasion, setOccasion] = useState(null)
   const [phase, setPhase] = useState('idle') // idle | thinking | ready | failed
   const [request, setRequest] = useState(null) // the request + its outfits
   const [error, setError] = useState('')
@@ -32,12 +35,18 @@ export default function Outfits() {
 
   async function ask(e) {
     e.preventDefault()
+    // Need either typed text or a chosen occasion.
+    const text = prompt.trim() || (occasion ? `an outfit for a ${occasion} occasion` : '')
+    if (!text) {
+      setError('Type a request or pick an occasion.')
+      return
+    }
     setError('')
     setRequest(null)
     esRef.current?.close()
     setPhase('thinking')
     try {
-      const created = await api.createRequest(prompt) // POST /requests -> id, instantly
+      const created = await api.createRequest(text, occasion) // POST /requests -> id, instantly
       pollUntilReady(created.id)
     } catch (err) {
       setError(err.message) // e.g. "wardrobe too small"
@@ -109,12 +118,28 @@ export default function Outfits() {
         )}
       </div>
 
+      <div className="occasions">
+        {OCCASIONS.map((o) => (
+          <button
+            key={o}
+            type="button"
+            className={`chip ${occasion === o ? 'on' : ''}`}
+            onClick={() => setOccasion(occasion === o ? null : o)}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+
       <form className="ask" onSubmit={ask}>
         <input
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. something smart but comfortable for a warm day at the office"
-          required
+          placeholder={
+            occasion
+              ? `Add detail (optional) — e.g. warm weather, ${occasion}`
+              : 'e.g. something smart but comfortable for a warm day at the office'
+          }
         />
         <button type="submit" disabled={phase === 'thinking'}>
           {phase === 'thinking' ? 'Thinking…' : 'Ask'}

@@ -176,6 +176,13 @@ button.link {
 
 /* --- outfits --- */
 .notice { background: #fbe6f2; color: #a51d67; border: 1px solid #f4c9e0; padding: 11px 16px; border-radius: 12px; font-size: 14px; margin-bottom: 14px; }
+.occasions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chip {
+  background: #fff; color: var(--muted); border: 1px solid var(--border);
+  padding: 7px 15px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  box-shadow: none; text-transform: capitalize;
+}
+.chip.on { background: linear-gradient(135deg, var(--lav), var(--pink)); color: #fff; border-color: transparent; }
 .ask { display: flex; gap: 8px; margin-bottom: 16px; }
 .ask input { flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: 999px; background: #fff; color: var(--text); font-size: 15px; font-family: Nunito, sans-serif; }
 .ask input:focus { outline: 2px solid var(--lav); border-color: transparent; }

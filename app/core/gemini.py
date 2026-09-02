@@ -281,7 +281,9 @@ def generate_avatar_image(selections: dict) -> tuple[bytes, str]:
     return _generate_image([prompt])
 
 
-def rank_outfits(prompt_text: str, garments: list[dict], count: int) -> list[OutfitPick]:
+def rank_outfits(
+    prompt_text: str, garments: list[dict], count: int, occasion: str | None = None
+) -> list[OutfitPick]:
     """Ask Gemini to build ranked outfits from the given wardrobe, as text.
 
     `garments` is a list of {"id": str, "attributes": {...}} dicts — only the
@@ -299,10 +301,12 @@ def rank_outfits(prompt_text: str, garments: list[dict], count: int) -> list[Out
         )
     catalogue = "\n".join(lines)
 
+    occasion_line = f"The occasion is: {occasion}. Prioritise outfits suitable for it.\n" if occasion else ""
     instruction = (
         "You are a personal stylist. The user owns exactly this wardrobe:\n\n"
         f"{catalogue}\n\n"
-        f'The user asks: "{prompt_text}"\n\n'
+        f'The user asks: "{prompt_text}"\n'
+        f"{occasion_line}\n"
         f"Compose up to {count} complete, wearable outfits using ONLY the garment "
         "ids above. Every outfit must make sense to wear together (at least a top "
         "and a bottom, or a single dress, plus optional layers, shoes and "

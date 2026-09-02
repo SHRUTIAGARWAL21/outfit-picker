@@ -34,6 +34,7 @@ from app.core.gemini import (
     rank_outfits,
     render_outfit,
 )
+from app.core.occasions import formality_range
 from app.core.storage import upload_avatar, upload_render
 from app.db import SessionLocal
 from app.models import (
@@ -399,6 +400,29 @@ def generate_avatar_task(self, avatar_id: str, selections: dict) -> str:
             pass
 
 
+def _apply_occasion_filter(garments: list, occasion: str | None) -> list:
+    """Keep only garments whose formality fits the occasion (PRD 12.3).
+
+    Falls back to the full set if the occasion is unknown, or if filtering would
+    leave too little to build an outfit (fewer than 2 items, or no top+bottom and
+    no dress) — so a strict occasion never starves the request.
+    """
+    rng = formality_range(occasion)
+    if rng is None:
+        return garments
+    lo, hi = rng
+
+    def fits(g):
+        f = (g.attributes_json or {}).get("formality")
+        return f is None or lo <= f <= hi  # keep items with no formality recorded
+
+    filtered = [g for g in garments if fits(g)]
+
+    cats = {(g.attributes_json or {}).get("category") for g in filtered}
+    viable = len(filtered) >= 2 and (("top" in cats and "bottom" in cats) or "dress" in cats)
+    return filtered if viable else garments
+
+
 def _fail_request(db, request_id: str) -> None:
     """Re-read the request on a clean session and mark it FAILED."""
     db.rollback()
@@ -442,15 +466,21 @@ def generate_recommendations(self, request_id: str) -> str:
                 )
                 .all()
             )
-            candidates = {str(g.id): g for g in garments}
-            if not candidates:
+            if not garments:
                 req.status = RequestStatus.FAILED
                 db.commit()
                 return "no-candidates"
 
+            # Stage 1 (cont.) — occasion hard filter (PRD 12.3). If an occasion is
+            # set, keep only garments whose formality fits it. We only apply the
+            # filter if enough usable items survive, so a request is never starved.
+            garments = _apply_occasion_filter(garments, req.occasion)
+
+            candidates = {str(g.id): g for g in garments}
+
             # Stage 3 — ask Gemini to rank outfits from those candidates (text only).
             payload = [{"id": str(g.id), "attributes": g.attributes_json} for g in garments]
-            picks = rank_outfits(req.prompt_text, payload, _DEFAULT_OUTFITS)
+            picks = rank_outfits(req.prompt_text, payload, _DEFAULT_OUTFITS, occasion=req.occasion)
 
             # Replace any previous outfits for this request (safe to re-run).
             db.query(Outfit).filter(Outfit.request_id == req.id).delete()
